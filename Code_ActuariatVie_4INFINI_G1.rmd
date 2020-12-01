@@ -1,0 +1,193 @@
+---
+title: Influence des taux de mortalité sur un produit de rente viagère et de capital
+  décès
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Chargement des packages
+
+```{r setup, include=FALSE ,warning=FALSE,echo=FALSE,message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+```{r packages,warning=FALSE,message=FALSE}
+library(lifecontingencies)
+library(reliaR)
+library(demography)
+library(StMoMo)
+```
+
+## Question 1 : Téléchargement des données pour la suisse
+
+```{r echo=TRUE}
+Switz<-read.table(file = file.choose(),header = TRUE ,sep = "", dec = ".")
+head(Switz)
+```
+
+## Préparation des données
+
+1. Sélection de la cohorte nés en 1960
+
+2. Transfomation des données en dataframe
+
+3. Changement du type de la variable Age de fatcor à numérique 
+
+```{r warning=FALSE}
+Switz1960<- Switz[which(Switz$Year == 1960),names(Switz)]
+head(Switz1960)
+df_Switz1960<-data.frame(Switz1960)
+str(df_Switz1960$Age)
+df_Switz1960$Age<-as.numeric(as.character(df_Switz1960$Age))
+df_Switz1960$Age[111]<-110
+str(df_Switz1960$Age)
+```
+
+
+## Construction de table de mortalité
+
+```{r warning=FALSE}
+TD1960 <- new("lifetable", x=df_Switz1960$Age, lx= df_Switz1960$lx,name="SUISSE")
+TD1960
+```
+
+## Question 2
+
+```{r}
+
+```
+
+## Question 3  
+
+```{r}
+
+```
+
+## Question 4 : Calcul des VAP
+
+```{r warning=FALSE,message=FALSE}
+i=(1/0.97-1)
+TD1960tb <- new("actuarialtable", x=TD1960@x, lx=TD1960@lx,interest=i)
+TD1960tb
+
+VAP_rente <- axn(TD1960tb, x=58, m=0, i=i)
+VAP_rente #13.4407
+
+VAP_capital <- Axn(TD1960tb, x=58, m=0, i=i)
+VAP_capital #0.5967
+```
+
+## Question 5 : 
+
+1. Chargement des taux bruts de mortalité pour la suisse
+
+2. Affichage de la fonction log du taux de mortalité en fonction de l'âge et en fonction des années
+
+3. Lissage par spline monotone 
+
+4. Modèle Lee-Carter avec la méthode vue en classe 
+
+```{r warning=FALSE}
+suisse <- hmd.mx(country = "CHE",username = "oussama.hannachi.1@esprit.tn",password = "Realmadrid11",label = "Suisse")
+suisse
+
+par(mfrow=c(1,2))
+plot(suisse,series="male",datatype="rate", main="Suisse, Homme, 1876 - 2016",xlab="Age",ylab="Taux (log)")
+plot(suisse,series="male",datatype="rate", plot.type="time", main="Suisse, Homme, 1876 - 2016",xlab="Années",ylab="Taux (log)")
+
+suisse.smth <- smooth.demogdata(suisse,method="mspline")
+
+suisseeLcaM <- lca(suisse.smth ,series ="male" , max.age = 110, adjust="dt")
+plot(suisseeLcaM)
+
+```
+
+
+## Modèle Lee-Carter avec la mèthode fit du package StMoMo en choisissant les plages d'âge et de période
+
+On observant les paramètres du modèle sur toute la pèriode : 
+
++ αx : une fonction unimodale décroissante pour les âges faibles inférieurs à 10 ans puis une forte croissante jusqu’à la fin de la vie ,c'est pourquoi notre plage commence en à 15ans jusqu'à 100ans et non pas 110 pour éviter les valeurs manquantes.
+
++ kt : cette fonction décroît sur toute la période mais en présentant un pic en 1920, notre plage d'années commence de 1940 jusqu'à 2016.   
+
+
+```{r warning=FALSE}
+Suisse.momo <- StMoMoData(data = suisse.smth,series = "male" ,type = "central")
+constLC <- function(ax, bx, kt, b0x, gc, wxt, ages) {
+     c1 <- mean(kt[1, ], na.rm = TRUE)
+     c2 <- sum(bx[, 1], na.rm = TRUE)
+     list(ax = ax + c1 * bx, bx = bx / c2, kt = c2 * (kt - c1))}
+age <- 15:100
+annees <- 1925:2016
+LC <- StMoMo(link = "log", staticAgeFun = TRUE, periodAgeFun = "NP", constFun = constLC)
+SuisseFit<- fit(LC, data = Suisse.momo, ages.fit = age, years.fit = annees )
+plot(SuisseFit)
+```
+
+## Analyse des paramètres :
+
+- αx :  la valeur moyenne des logs de la mortalité instantanné ( ln µ( x t, ) au cours du temps  ) elle crois en fonction de l’age elle varie entre -7 et -1 .
+
+- βx indique la sensibilité de la mortalité instantanée par rapport à l’évolution générale de la mortalité. Si on se situe à partir de 18 ans, on constate que les âges les plus sensibles à l’évolution temporelle de la mortalité sont ceux entre 20 et 40 ans . On atteint en effet des pics sur ces tranches d’âges.
+
+- D’après la figure ci-dessus et comme  kt indique l’évolution générale de la mortalité dans le temps ; On constate une tendance linéaire à la décroissance des entre 1940 et 1980. Cette tendance à la décroissance du paramètre k, qui devient négatif au cours de la période, associée à la positivité moyenne du paramètre β implique d’après la formule de Lee-Carter, une diminution des taux instantanés de mortalité. En conséquence, on assiste à une augmentation  de la probabilité  de la  survie sur la période observée.
+
+
+## Le résidus du modèle 
+
+```{r warning=FALSE}
+model_res <- resid(SuisseFit)
+plot(model_res)
+```
+
+## Question 6 : Projection centrale sur 25 ans
+
+```{r warning=FALSE}
+LcFore=forecast(suisseeLcaM, h = 25 ,method=mean)
+SuisseForcast <- forecast(SuisseFit , h = 25, method=mean)
+plot(SuisseForcast, only.kt=TRUE)
+```
+
+## Question 7 : Les log taux de mortalités projetés pour la cohortes à partir de 2018
+
+```{r warning=FALSE}
+suisse1841 <- extract.years(LcFore, years=2018:2041)
+plot(suisse1841)
+```
+
+## Question 8 : Recalcule des VAP
+
+1. Fusion des taux historiques et les esttimés
+
+2. Création du table de mortalité
+
+3. Calcul des VAP
+
+```{r warning=FALSE}
+chosen_cohort = 1960
+rates <- cbind(suisse$rate$male[25:90,],SuisseForcast$rates[1:66,])
+taux_historique <- extractCohort(fitted(SuisseFit, type = "rates"), cohort = chosen_cohort)
+taux_estime <- extractCohort(SuisseForcast$rates, cohort = chosen_cohort)
+taux <- c(taux_historique,taux_estime)
+
+qx_1960 <- mx2qx(taux)
+lifetable_1960<-probs2lifetable(probs=qx_1960,type = "qx",name = paste("LC","1950","lt",sep="_"))
+i=(1/0.97-1)
+TD1960LC <- new("actuarialtable", x=lifetable_1960@x, lx=lifetable_1960@lx,interest=i)
+
+VAP_rente_LC <- axn(TD1960LC, x=50, m=0)
+VAP_rente_LC #12.7040
+
+VAP_capital_lC <- Axn(TD1960LC, x=58, m=0, i=i)
+VAP_capital_lC #0.7596
+```
+
+## Question 9 : Les autres paramètres qui influent sur le VAP
+
+La VAP dépend de deux facteurs qui sont l’âge de l’assuré et le taux technique i 
+
+* Concernant l’âge la VAP crois en fonction de l’âge (corrélation positive ) vu que la probabilité de décès augmente en fonction de ce dernier .
+
+* Le taux technique : La valeur actuelle probable VAP augmente lorsque le taux technique diminue.
